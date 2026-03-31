@@ -14,7 +14,7 @@ class MemoryIOController(IOControllerMixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.calls = []
-        self.size = 32
+        self.size = 256
         self.data = [0xFF] * self.size
         self.pointer = 0
 
@@ -62,18 +62,9 @@ def module():
 
     return MyModule()
 
-class MyModuleMemory(ModuleMemoryMixin, M24Cxx):
-    CUSTOM_MAP: Final = [
-        ("string1", "STRING", 8, "String[8]", "STRING1"),
-        ("number1", "number", 2, "Unsigned number", 100),
-        ("int1", "int", 4, "Signed number", 0),
-        ("string2", "string", 16, "String[16]", "Hello"),
-        ("dt1", "datetime", 8, "Datetime"),
-    ]
-
 @pytest.fixture
 def device():
-    return MyModuleMemory("i2c", 0x54, 8)
+    return M24Cxx("i2c", 0x54, 8)
 
 
 def test_memory(rig, mainboard, module, device):
@@ -95,6 +86,7 @@ def test_memory(rig, mainboard, module, device):
     device.write_string(10, "ABCD", 8)
     assert mainboard.data[10:18] == [ord("A"), ord("B"), ord("C"), ord("D"), 0x0, 0x0, 0x0, 0x0]
     assert device.read_string(10, 2) == "AB"
+
     assert device.read_string(10, 8) == "ABCD"
 
     device.write_number(2, -2, 4)
@@ -129,6 +121,37 @@ def test_module_memory(rig, mainboard, module, device):
     rig.add_module(module)
     module.add_i2c_device(device)
     rig.configure()
- 
 
+    common_map = CommonMemoryMap(device)
+    assert common_map.default_stamp(datetime.datetime(2025, 2, 1, 19, 30, 40)) == "25032"
+
+    assert common_map.size == 128
+    assert common_map.offset == 0
+    assert common_map.is_valid() == False
+    assert common_map.get_version() is None
+    assert common_map.get_id_version() is None
+    data = {
+        "system_id": "TST",
+        "module_id": "PYTEST",
+        "version": 123,
+    }
+    common_map.write_data(data)
+    assert common_map.is_valid() == True
+    d = common_map.read_data()
+    assert d["system_id"] == data["system_id"]
+    assert d["module_id"] == data["module_id"]
+    assert common_map.get_version() == data["version"]
+    assert common_map.get_id_version() == (data["module_id"], data["version"])
+
+    memory_map = ModuleMemoryMap(device, [
+            ("string1", "STRING", 8, "String[8]", "STRING1"),
+            ("number1", "number", 2, "Unsigned number", 100),
+            ("int1", "int", 4, "Signed number", 0),
+            ("string2", "string", 16, "String[16]", lambda: "callable"),
+            ("dt1", "datetime", 3, "Datetime"),
+        ], 64)
+    assert memory_map.get_defaults() == {"string1": "STRING1", "number1": 100, "int1": 0, "string2": "callable"}
+    data = {"string1": "abcd", "int1": -4, "string2": "AbCd", "dt1": datetime.datetime(2025, 2, 20, 19, 40, 50), "number1": 888}
+    memory_map.write_data(data)
+    assert memory_map.read_data() == {"string1": data["string1"].upper(), "number1": data["number1"], "int1": data["int1"], "string2": data["string2"], "dt1": datetime.datetime(2025, 2, 20)}
 

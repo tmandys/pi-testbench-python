@@ -343,7 +343,7 @@ class IOControllerMixin:
             #print(f"not in caps: {list(self.capabilities)}")
             return False
         if as_type and as_type != self.capabilities[capability_id]["type"]:
-                #print(f"not type: {as_type} != {self.capabilities[capability_id]}.type")
+            #print(f"not type: {as_type} != {self.capabilities[capability_id]}.type")
             return False
         if access and access not in self.capabilities.get("access", access):
             #print(f"not access: {access} != {self.capabilities[capability_id]}.access")
@@ -450,12 +450,14 @@ class Rig:
                         cfg_modules[module][key] = cfg
 
             unknown = []
+            #print(f"rig config: {configuration}, {self._mainboard.capabilities},{self._modules}")
             for key, cfg in configuration.items():
                 if cfg.get("__controller__"):
                     continue
                 if self._mainboard.can_handle(cfg.get("controller"), cfg["capability_id"]):
                     cfg["__controller__"] = self._mainboard
                     cfg_modules[self._mainboard][key[1]] = cfg
+                    #print(f"canhandle: {cfg}, {cfg_modules}")
                     continue
                 found = False
                 for module_name, module in self._modules.items():
@@ -469,11 +471,14 @@ class Rig:
             if unknown:
                 raise TestbenchError(f"Cannot find target controller for {unknown}")
 
+            self._configuration = configuration
+            #print(f"{cfg_modules}")
             for module, cfg_module in cfg_modules.items():
                 module.configure(cfg_module)
         self._configuration = configuration
 
     def _find_controller(self, name: str | tuple, type: str, access: str = None) -> tuple:
+        #print(f"_find_controller: {name}, {type}, {access}")
         if not isinstance(name, tuple):
             parts = name.split(".", 1)
             if len(parts) > 1:
@@ -487,7 +492,7 @@ class Rig:
                 if key[1] == name:
                     if cfg["__controller__"].can_handle(cfg.get("controller"), cfg["capability_id"], type, access):
                         return (cfg["__controller__"], cfg["capability_id"])
-            # print(f"configuration: {self._configuration}")
+            #print(f"configuration: {self._configuration}")
         raise TestbenchError(f"Cannot handle '{name}' as type '{type}'")
 
 
@@ -604,6 +609,6 @@ class Module(IOControllerMixin):
                 continue
             i2c_device.assign_controller(controller, capability_id)
         if invalid:
-            print(f"module: {self.name}, configuration: {configuration}")
+            #print(f"module: {self.name}, configuration: {configuration}")
             raise TestbenchError(f"Unknown i2c bus: {invalid}")
 

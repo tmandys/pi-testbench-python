@@ -72,8 +72,7 @@ class ADS1115(I2CDevice):
     def __init__(self, bus_id: str, addr: int):
         super().__init__(bus_id, addr)
 
-    def initialize(self) -> None:
-        super().initialize()
+    def _setup_impl(self) -> None:
         self._set_config(self._get_config())
 
     def _get_config(self, trigger: bool = False, mux: int = MUX_AIN_0_1, pg: int = PG_6V144, continuous: bool = False,
@@ -91,6 +90,11 @@ class ADS1115(I2CDevice):
             config |= 1 << 2
         config |= 0x3 if comp & self.COMP_QUEUE_MASK == 0 else (comp & self.COMP_QUEUE_MASK) - 1
         return config
+
+    @property
+    def current_config(self):
+        self.setup()
+        return self._current_config
 
     def _set_config(self, config: int):
         self.write_reg16(self._PA_CONFIG, config)
@@ -111,15 +115,14 @@ class ADS1115(I2CDevice):
         self._continuous = (config >> 8) & 1 == 0
         self._current_config = config
 
-    def reset(self) -> None:
+    def _reset_impl(self) -> None:
         self._set_config(self._get_config())
         self.write_reg16(self._PA_LO_THRESH, 0x8000)
         self.write_reg16(self._PA_HI_THRESH, 0x7FFF)
-        super().reset()
 
-    def set_comparator(self, comp: None, lo_threshold: None, hi_threshhold: None):
+    def set_comparator(self, comp: int = None, lo_threshold: float = None, hi_threshold: float = None):
         if comp is not None:
-            config = self._current_config & 0xFFE0
+            config = self.current_config & 0xFFE0
             config |= self._get_config(comp=comp) & 0x1F
             self._set_config(config)
         if lo_threshold is not None:
@@ -134,13 +137,13 @@ class ADS1115(I2CDevice):
             self.write_reg16(self._PA_HI_THRESH, val)
 
     def set_mode(self, mux: int = MUX_AIN_0_1, pg: int = PG_6V144, continuous: bool = False, dr: int = DR_128SPS):
-        config = self._current_config & 0x1F
+        config = self.current_config & 0x1F
         config |= self._get_config(mux=mux, pg=pg, continuous=continuous, dr=dr) & 0xFFE0
         self._set_config(config)
 
     def measure(self) -> float:
         if not self._continuous:
-            self._set_config(self._current_config | 1<<15)
+            self._set_config(self.current_config | 1<<15)
             start_time = time.monotonic()
             while True:
                 config = self.read_reg16(self._PA_CONFIG)

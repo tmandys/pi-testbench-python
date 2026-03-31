@@ -34,10 +34,10 @@ class NXPPWMDriver(I2CDevice):
         self._channels = channels
 
 
-    def _write_to_driver(self, addr: int, data: list):
-        buf = [0x80 | addr] + data
-        logging.getLogger().debug(f"NXPPWM ({self._i2c_addr:#x}) write: {buf}")
-        self._write_read(buf, 0)
+    def _write_to_driver(self, pa: int, data: list):
+        buf = [0x80 | pa] + data
+        logging.getLogger().debug(f"NXPPWM ({self.addr:#x}) write: {buf}")
+        self.write_read(buf, 0)
 
 class PCA9634(NXPPWMDriver):
 
@@ -79,7 +79,7 @@ class PCA9634(NXPPWMDriver):
     def set_pwm(self, channel, val):
         if channel >= self._channels or channel < 0:
             TestbenchError(f"Channel {channel} of range 0..{self._channels-1}")
-        val = Math.max(Math.min(val, 255), 0)
+        val = max(min(val, 255), 0)
         self._write_to_driver(self._PA_PWM0 + channel, [val])
         self._regs[self._PA_PWM0 + channel] = val
         addr = self._PA_LEDOUT0 + channel // 4

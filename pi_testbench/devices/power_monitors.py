@@ -83,14 +83,16 @@ class INA219(I2CDevice):
         self._current_lsb = i_max / 32768.0
         self._calibration = int(0.04096 / (r_shunt * self._current_lsb))
 
-    def _setup_impl(self) -> None:
         self._config = (self._brng << 13) | (self._pg << 11) | (self._badc << 7) | (self._sadc << 3)
-        self._continuous = self._mode in [self.MODE_SHUNT_CONT, self.MODE_BUS_CONT, MODE_SHUNT_BUS_CONT]
+        self._continuous = self._mode in [self.MODE_SHUNT_CONT, self.MODE_BUS_CONT, self.MODE_SHUNT_BUS_CONT]
         if self._continuous:
             self._config |= self._mode
         else:
             if self._mode != self.MODE_PD:
                 self._config |= self.ADC_OFF
+
+
+    def _setup_impl(self) -> None:
         self.write_reg16(self._PA_CONFIG, self._config)
         self.write_reg16(self._PA_CALIBRATION, self._calibration)
 
@@ -123,7 +125,7 @@ class INA219(I2CDevice):
                             power = (val[0] << 8 | val[1]) * 20 * self._current_lsb
                     break
                 if (time.monotonic() - start_time) >  0.2:
-                    TestbenchError(f"Cannot probe {self}")
+                    raise TestbenchError(f"Cannot probe {self}")
                 time.sleep(0.001)
             if not self._mode in [self.MODE_BUS_CONT, self.MODE_BUS_TRIGGER]:
                 raw_current = self.read_reg16(self._PA_CURRENT)

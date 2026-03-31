@@ -33,49 +33,63 @@ from timeit import default_timer
 ## @package board
 # Board and adapter Support
 
-class UTBMemory(ModuleMemoryMixin):
-
-    # TODO: speed is higher for v102, board_tool does not work with version so all options are here
-    CUSTOM_MAP = [
-        ("addr_pca9634", "int", 1, "PCA9634 I2C address", 0x4F),
-        ("addr_pcf8574_0", "int", 1, "PCF8574 #0 I2C address", 0x27),
-        ("addr_pcf8574_1", "int", 1, "PCF8574 #1 I2C address", 0x26),
-        ("addr_ina219_0", "int", 1, "INA219 #0 I2C address", 0x47),
-        ("addr_ina219_1", "int", 1, "INA219 #1 I2C address", 0x46),
-        ("addr_ads1115_0", "int", 1, "ADS1115 #0 I2C address", 0x48),
-        ("addr_ads1115_1", "int", 1, "ADS1115 #1 I2C address", 0x49),
-        ("addr_ads1115_2", "int", 1, "ADS1115 #2 I2C address", 0x4A),
-        ("addr_ads1115_3", "int", 1, "ADS1115 #3 I2C address", 0x4B),
-        ("toggle_pin", "string", 8, "I2C bus toggle pin", ""),
-    ]
+class UTBModuleMemoryMap(ModuleMemoryMap):
+    def __init__(self, storage: StorageMixin):
+        super().__init__(storage, [
+            ("addr_pca9634", "int", 1, "PCA9634 I2C address", 0x4F),
+            ("addr_pcf8574_0", "int", 1, "PCF8574 #0 I2C address", 0x27),
+            ("addr_pcf8574_1", "int", 1, "PCF8574 #1 I2C address", 0x26),
+            ("addr_ina219_0", "int", 1, "INA219 #0 I2C address", 0x47),
+            ("addr_ina219_1", "int", 1, "INA219 #1 I2C address", 0x46),
+            ("addr_ads1115_0", "int", 1, "ADS1115 #0 I2C address", 0x48),
+            ("addr_ads1115_1", "int", 1, "ADS1115 #1 I2C address", 0x49),
+            ("addr_ads1115_2", "int", 1, "ADS1115 #2 I2C address", 0x4A),
+            ("addr_ads1115_3", "int", 1, "ADS1115 #3 I2C address", 0x4B),
+            ("imax_ina219_0", "int", 4, "INA219 #0 Imax[mA]", 2000),
+            ("imax_ina219_1", "int", 4, "INA219 #1 Imax[mA]", 2000),
+            ("rshunt_ina219_0", "number", 4, "INA219 #0 R shunt [mOhm]", 20),
+            ("rshunt_ina219_1", "number", 4, "INA219 #1 R shunt [mOhm]", 20),
+            ("addr_ina219_1", "int", 1, "INA219 #1 I2C address", 0x46),
+            #("toggle_pin", "string", 8, "I2C bus toggle pin", ""),
+        ])
 
 class UTBModule(Module):
     ID = "UTB"
-    MODULE_MEMORY_CLASS = UTBMemory
-    def __init__(self, bus_id: str = "i2c", memory_addr: int = 0x57):
+    MODULE_MEMORY_CLASS = UTBModuleMemoryMap
+    def __init__(self, storage, toggle_pin=None):
         super().__init__()
-        module_memory = self.MODULE_MEMORY_CLASS(bus_id, memory_addr)
-        self._custom_data = module_memory.read_custom()
+        self._storage = storage
+        self._module_memory = self.MODULE_MEMORY_CLASS(storage)
+        self._toggle_pin_capability_id = toggle_pin
+        self._module_data = None
+        self.add_i2c_device(storage)
 
+    def _read_module_configuration(self):
+        # TODO: we need initialized bus
+        self._module_data = self._module_memory.read_data()
+        bus_id = self._storage.bus_id
         # get configuration from memory
-        self._toggle_pin_capability_id = self._custom_data["toggle_pin"]
+        #self._toggle_pin_capability_id = self._module_data["toggle_pin"]
         self._i2c_analog_in_devices = []
         for i in range(0, 4):
-            dev = ADS1115(bus_id, self._custom_data[f"addr_ads1115_{i}"])
+            dev = ADS1115(bus_id, self._module_data[f"addr_ads1115_{i}"])
             self._i2c_analog_in_devices.append(dev)
             self.add_i2c_device(dev)
         self._i2c_io_devices = []
         for i in range(0, 2):
-            dev = PCF8574(bus_id, self._custom_data[f"addr_pcf8574_{i}"])
+            dev = PCF8574(bus_id, self._module_data[f"addr_pcf8574_{i}"])
             self._i2c_io_devices.append(dev)
             self.add_i2c_device(dev)
         self._i2c_pwr_devices = []
         for i in range(0, 2):
-            dev = INA219(bus_id, self._custom_data[f"addr_ina219_{i}"])
+            dev = INA219(bus_id, self._module_data[f"addr_ina219_{i}"],
+                i_max=self._module_data[f"imax_ina219_{i}"],
+                r_shunt=self._module_data[f"rshunt_ina219_{i}"],
+            )
             self._i2c_pwr_devices.append(dev)
             self.add_i2c_device(dev)
         self._i2c_pwr_devices = []
-        dev = PCA9634(bus_id, self._custom_data["addr_pca9634"])
+        dev = PCA9634(bus_id, self._module_data["addr_pca9634"])
         self._i2c_pwr_device = dev
         self.add_i2c_device(dev)
 
@@ -133,11 +147,19 @@ class UTBModule(Module):
                 "dir": "out",
                 "init": 0,
             }
+        configuration["i2c"] = {
+            "capability_id": self._storage.bus_id,
+        }
+        if self._storage.controller:
+            configuration["i2c"]["controller"] = storage.controller
+
         return configuration
 
-    def toggle_i2c_bus(self, enable: bool):
+    def toggle_i2c_bus(self, i2c_device, enable: bool):
         if self._toggle_pin_capability_id:
             self.rig.write_pin("toggle_bus", enable)
 
-
+    def configure(self, configuration):
+        super().configure(configuration)
+        self._read_module_configuration()
 

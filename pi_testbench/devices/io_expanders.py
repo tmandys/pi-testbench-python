@@ -36,7 +36,7 @@ class PCF857x(I2CDevice):
     def _setup_impl(self):
         self.set_outputs((1 << (self._num_bytes * 8)) - 1)
 
-    def get_inputs(self):
+    def get_inputs(self) -> int:
         data = self.write_read([], self._num_bytes)
         return int.from_bytes(data, byteorder='little')
 
@@ -44,7 +44,7 @@ class PCF857x(I2CDevice):
         self.write_read(value.to_bytes(self._num_bytes, "little"), 0)
         self._last_state = value
 
-    def get_pin(self, idx: int):
+    def get_pin(self, idx: int) -> bool:
         return bool(self.get_inputs() & (1 << idx))
 
     def set_pin(self, idx: int, level: bool):

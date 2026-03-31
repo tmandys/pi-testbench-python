@@ -31,111 +31,131 @@ import datetime
 ## @package module_memory
 # On board memory abstraction
 
-"""
-class ModuleMemoryMap:
-    def __init__:
-        pass
-"""
+class MemoryMap:
+    def __init__(self, storage: StorageMixin, mapping: dict, offset: int, size: int = 0):
+        self._storage = storage
+        self._mapping = mapping
+        self._offset = offset
+        if size <= 0:
+            size = 0
+            for map in mapping:
+                size += map[2]
+        self._size = size
 
-class ModuleMemoryMixin(StorageMixin):
+    @property
+    def offset(self):
+        return self._offset
 
-    # EEPROM 256 bytes
-    HEADER_ADDR: Final = 0
-    HEADER_SIZE: Final = 128
-    CUSTOM_ADDR: Final = HEADER_SIZE
-    CUSTOM_SIZE: Final = 128
+    @property
+    def size(self):
+        return self._size
 
-    MAGIC: Final = 0xAA55
+    @property
+    def mapping(self):
+        return self._mapping
 
-    # (name, type: [string, STRING, datetime, int...signed, number], size, descr, [default value, [options]] )
-    HEADER_MAP: Final = [
-        (None, "number", 2, "Magic", MAGIC),
-        (None, None, 6, "Reserved"),
-        ("system_id", "STRING", 8, "System id", "TSTBENCH"),
-        ("adapter_id", "STRING", 8, "Adapter id used to identify plugged-in adapter", None, lambda: [cls.ID for cls in registered_boards]),
-        ("board_id", "STRING", 8, "Board id", "RPIBEN"),
-        ("version", "number", 2, "Board version in decimal form 'xxyy' corresponding to xx.yy"), # no default value not to overwrite easily value
-        ("serial_number", "number", 8, "Unique serial number"), # dtto
-        ("human_name", "string", 16, "Human readable board name, e.g. Digie35", "Digie35"),
-        ("manufacturer", "string", 8, "Manufacturer name", "2P"),
-        ("pcb_by", "string", 3, "PCB manufacturer nick"),
-        ("pcb_stamp", "number", 2, "PCB stamp ('YY9WW' or 'YYDDD')"),
-        ("pcba_smd_by", "string", 3, "PCBA SMD by nick"),
-        ("pcba_smd_stamp", "number", 2, "PCBA SMD stamp ('YY9WW' or 'YYDDD')"),
-        ("pcba_tht_by", "string", 3, "PCBA SMD by nick"),
-        ("pcba_tht_stamp", "number", 2, "PCBA SMD stamp ('YY9WW' or 'YYDDD')"),
-        ("tested1_by", "string", 3, "Tested phase 1 by nick"),
-        ("tested1_stamp", "number", 2, "Tested phase 1 stamp ('YY9WW' or 'YYDDD')"),
-        ("tested2_by", "string", 3, "Tested phase 2 by nick"),
-        ("tested2_stamp", "number", 2, "Tested phase 2 stamp ('YY9WW' or 'YYDDD')"),
-        #("dt_param", "datetime", 8, "Datetime example"),
-    ]
+    def erase(self, addr: int, len: int = 0):
+        if len <= 0:
+            len = self._size
+        self.write_array(addr, [0xFF] * len)
 
-    CUSTOM_MAP  = []
+    def read_data(self):
+        res  = {}
+        addr = self._offset
+        for name, type, size, *_ in self._mapping:
+            if name is not None:
+                match type:
+                    case "STRING" | "string":
+                        res[name] = self._storage.read_string(addr, size)
+                    case "int":
+                        res[name] = self._storage.read_number(addr, size, True)
+                    case "number":
+                        res[name] = self._storage.read_number(addr, size)
+                    case "datetime":
+                        res[name] = self._storage.read_datetime(addr, size)
+            addr += size
+        return res
+
+    def write_data(self, data):
+        addr = self._offset
+        for name, type, size, *_ in self._mapping:
+            if name is not None and name in data:
+                match type:
+                    case "STRING":
+                        self._storage.write_string(addr, data[name].upper(), size)
+                    case "string":
+                        self._storage.write_string(addr, data[name], size)
+                    case "int" | "number":
+                        self._storage.write_number(addr, data[name], size)
+                    case "datetime":
+                        self._storage.write_datetime(addr, data[name], size)
+            addr += size
+
+    def get_defaults(self):
+        res = {}
+        for map in self._mapping:
+            if len(map) >= 5:
+                name, type, size, descr, default, *_ = map
+                if callable(default):
+                    res[name] = default()
+                else:
+                    res[name] = default
+        return res
+
+class CommonMemoryMap(MemoryMap):
+    _MAGIC: Final = 0xAA55
+    SIZE = 128
+
+    def default_stamp(self, stamp: datetime.datetime = datetime.datetime.now()):
+        return stamp.strftime("%y%j")
+
+    def __init__(self, storage):
+        super().__init__(storage, [
+                (None, "number", 2, "Magic", self._MAGIC),
+                (None, None, 6, "Reserved"),
+                ("system_id", "STRING", 8, "System id", "TSTBENCH"),
+                ("module_id", "STRING", 8, "Module id used to identify board"), #None, lambda: [cls.ID for cls in registered_boards]),
+                ("summodule_id", "STRING", 8, "Submodule id"),
+                ("version", "number", 2, "Board version in decimal form 'xxyy' corresponding to xx.yy"), # no default value not to overwrite easily value
+                ("serial_number", "number", 8, "Unique serial number"), # dtto
+                ("human_name", "string", 16, "Human readable board name, e.g. MyBoard"),
+                ("manufacturer", "string", 8, "Manufacturer name", "2P"),
+                ("pcb_by", "string", 3, "PCB manufacturer nick"),
+                ("pcb_stamp", "number", 2, "PCB stamp ('YY9WW' or 'YYDDD')"),
+                ("pcba_smd_by", "string", 3, "PCBA SMD by nick"),
+                ("pcba_smd_stamp", "number", 2, "PCBA SMD stamp ('YY9WW' or 'YYDDD')"),
+                ("pcba_tht_by", "string", 3, "PCBA SMD by nick"),
+                ("pcba_tht_stamp", "number", 2, "PCBA SMD stamp ('YY9WW' or 'YYDDD')"),
+                ("tested1_by", "string", 3, "Tested phase 1 by nick"),
+                ("tested1_stamp", "number", 2, "Tested phase 1 stamp ('YY9WW' or 'YYDDD')"),
+                ("tested2_by", "string", 3, "Tested phase 2 by nick"),
+                ("tested2_stamp", "number", 2, "Tested phase 2 stamp ('YY9WW' or 'YYDDD')"),
+                #("dt_param", "datetime", 8, "Datetime example"),
+            ], 0, self.SIZE)
+
+    def is_valid(self):
+        return self._storage.read_number(0, 2) == self._MAGIC
 
     def get_version(self):
-        return self.read_number(32, 2)
+        return self._storage.read_number(32, 2)
 
     def get_id_version(self):
-        w = self.read_number(0, 2)
-        if w == self.MAGIC:
-            adapter_id = self.read_string(16, 8)
+        if self.is_valid():
+            module_id = self._storage.read_string(16, 8)
             version = self.get_version()
             #logging.getLogger().debug("adapter_id: %s, ver: %s", (adapter_id, version))
-            if adapter_id == None or version == None:
+            if module_id is None or version is None:
                 return None
-            return (adapter_id, version)
+            return (module_id, version)
         else:
             return None
 
-    def reset(self, addr, len):
-        arr = []
-        for i in range(0, len):
-            arr.append(0xFF)
-        self.write_array(addr, arr)
+    def write_data(self, data):
+        super().write_data(data)
+        if not self.is_valid():
+            self._storage.write_number(0, self._MAGIC, 2)
 
-    def erase(self):
-        self.reset(self.HEADER_ADDR, self.HEADER_SIZE)
-        self.reset(self.CUSTOM_ADDR, self.CUSTOM_SIZE)
-
-    def read_data(self, addr, map):
-        res  = {}
-        for item in map:
-            if item[0] != None:
-                if item[1].upper() == "STRING":
-                    res[item[0]] = self.read_string(addr, item[2])
-                elif item[1] == "int":
-                    res[item[0]] = self.read_number(addr, item[2], True)
-                elif item[1] == "number":
-                    res[item[0]] = self.read_number(addr, item[2])
-                elif item[1] == "datetime":
-                    res[item[0]] = self.read_datetime(addr)
-            addr += item[2]
-        return res
-
-    def write_data(self, addr, map, data):
-        for item in map:
-            if item[0] != None and item[0] in data:
-                if item[1] == "STRING":
-                    self.write_string(addr, data[item[0]].upper(), item[2])
-                elif item[1] == "string":
-                    self.write_string(addr, data[item[0]], item[2])
-                elif item[1] in ["int", "number"]:
-                    self.write_number(addr, data[item[0]], item[2])
-                elif item[1] == "datetime":
-                    self.write_datetime(addr, data[item[0]])
-            addr += item[2]
-
-    def read_header(self):
-        return self.read_data(self.HEADER_ADDR, self.HEADER_MAP)
-
-    def write_header(self, hdr):
-        self.write_number(0, self.MAGIC, self.HEADER_MAP[0][2])
-        self.write_data(self.HEADER_ADDR, self.HEADER_MAP, hdr)
-
-    def read_custom(self):
-        return self.read_data(self.CUSTOM_ADDR, self.CUSTOM_MAP)
-
-    def write_custom(self, data):
-        return self.write_data(self.CUSTOM_ADDR, self.CUSTOM_MAP, data)
+class ModuleMemoryMap(MemoryMap):
+    def __init__(self, storage: StorageMixin, mapping: dict, size: int = 0):
+        super().__init__(storage, mapping, CommonMemoryMap.SIZE, size if size > 0 else 128)
 

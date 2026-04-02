@@ -134,30 +134,70 @@ class StorageMixin:
         self.write_array(addr, arr[0:min(len(arr), count)])
 
 class M24Cxx(I2CDevice, StorageMixin):
-    def __init__(self, bus_id: str, addr: int, page_size: int):
+    def __init__(self, bus_id: str, addr: int, size: int, page_size: int = 8):
         super().__init__(bus_id, addr)
+        print(f"M24Cxx({bus_id}, {addr:x}, {size}, {page_size})")
+        if size not in [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]:
+            raise ValueError(f"Wrong memory size")
+        self._size = size
         self._page_size = page_size
 
+    @property
+    def size(self):
+        return self._size
+
+    def _get_i2c_addr(self, addr):
+        match self.size:
+            case 128 | 256:
+                return (self.addr, [addr])
+            case 512:
+                return ((self.addr & ~0x1) | addr // 256, [addr % 256])
+            case 1024:
+                return ((self.addr & ~0x3) | addr // 256, [addr % 256])
+            case 2048:
+                return ((self.addr & ~0x8) | addr // 256, [addr % 256])
+            case _:
+                return (self.addr, [addr >> 8, addr & 0xFF])
+
     def _read_impl(self, addr: int, count: int):
-        if addr + count > 256:
-            ValueError(f"Only one-byte address implemented")
-        return self.write_read([addr], count)
+        if addr + count > self._size:
+            raise ValueError(f"Address overflow: {addr+count} > {self._size}")
+        if self.size > 256 and self.size < 4096:
+            result = []
+            while count > 0:
+                page_end = (addr & 0xFF00) + 256
+                if page_end - addr >= count:
+                    l = count
+                else:
+                    l = page_end - addr
+                i2c_addr, addr2 = self._get_i2c_addr(addr)
+                result += self.write_read(addr2, l, i2c_addr)
+                addr += l
+                count -= l
+            return result
+        else:
+            i2c_addr, addr2 = self._get_i2c_addr(addr)
+            return self.write_read(addr2, count, i2c_addr)
 
     def _write_impl(self, addr: int, data):
         count = len(data)
-        if addr + count > 256:
-            ValueError(f"Only one-byte address implemented")
+        if addr + count > self._size:
+            raise ValueError(f"Address overflow: {addr+count} > {self._size}")
         i = 0
         while count > 0:
+            i2c_addr = self.addr
             page_end = (addr & ~(self._page_size - 1)) + self._page_size
             if page_end - addr >= count:
                 l = count
             else:
                 l = page_end - addr
-            # print("DEBUG: write addr: %s, page: %s, l: %s, i: %s, data: %s" % (addr, page_end, l, i, data[i:i+l]))
-            self.write_read([addr] + data[i:i+l], 0)
+            i2c_addr, addr2 = self._get_i2c_addr(addr)
+            #print(f"DEBUG: write i2c: {i2c_addr:#x}, addr: {addr}/{addr2}, page: {page_end}, l: {l}, i: {i}, data: {data[i:i+l]}")
+            self.write_read(addr2 + data[i:i+l], 0, i2c_addr)
             addr += l
             i += l
             count -= l
             time.sleep(0.01)   # 5ms EEPROM write delay (otherwise check ACK)
 
+    def erase(self):
+        self.write_array(0, [0xFF] * self._size)

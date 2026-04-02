@@ -116,7 +116,7 @@ class CommonMemoryMap(MemoryMap):
                 ("system_id", "STRING", 8, "System id", "TSTBENCH"),
                 ("module_id", "STRING", 8, "Module id used to identify board"), #None, lambda: [cls.ID for cls in registered_boards]),
                 ("summodule_id", "STRING", 8, "Submodule id"),
-                ("version", "number", 2, "Board version in decimal form 'xxyy' corresponding to xx.yy"), # no default value not to overwrite easily value
+                ("module_version", "number", 2, "Module version in decimal form 'xxyy' corresponding to xx.yy"), # no default value not to overwrite easily value
                 ("serial_number", "number", 8, "Unique serial number"), # dtto
                 ("human_name", "string", 16, "Human readable board name, e.g. MyBoard"),
                 ("manufacturer", "string", 8, "Manufacturer name", "2P"),

@@ -29,7 +29,6 @@ from rpi_hardware_pwm import HardwarePWM
 import time
 import re
 from evdev import InputDevice, categorize, ecodes, list_devices
-from abc import ABC, abstractmethod
 
 #import datetime
 
@@ -38,11 +37,12 @@ from abc import ABC, abstractmethod
 
 
 ## Raspberry Pi 3/4/5 mainboard implementation
-class RpiMainboard(Mainboard, ABC):
+class RpiMainboard(Mainboard):
 
-    def __init__(self, use_i2c):
+    NOT_IMPLEMENTED = "Function is not implemented"
+
+    def __init__(self):
         super().__init__()
-        self._capabilities = None
 
         self._pwm = {}
         self._i2c_buses = {}
@@ -57,9 +57,6 @@ class RpiMainboard(Mainboard, ABC):
             self._is_rpi5 = re.match("^Raspberry Pi 5", proc.stdout) != None
             logging.getLogger().debug(f"RPI5: {self._is_rpi5}")
 
-    def __del__(self):
-        super().__del__()
-
     @property
     def is_rpi5(self):
         return self._is_rpi5
@@ -67,20 +64,22 @@ class RpiMainboard(Mainboard, ABC):
     def get_aliases(self) -> list:
         return ["mainboard", "rpi", "rpi5" if self.is_rpi5 else "rpi4", ]
 
-    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count):
-        # logging.getLogger().debug(f"{__name__}({i2c_device.addr:#X}, {out_data}, {in_count})")
+    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count, addr = None):
+        #logging.getLogger().debug(f"{__name__}({i2c_device.addr:#X}, {out_data}, {in_count})")
         i2c_bus = self._i2c_buses.get(i2c_device.capability_id)
-        if not bus:
+        if not i2c_bus:
             # lazy bus initialization
-            i2c_bus = SMBus2(self.get_capabilities[i2c_device.capability_id]["num"])
+            i2c_bus = SMBus2(self.capabilities[i2c_device.capability_id]["num"])
             self._i2c_buses[i2c_device.capability_id] = i2c_bus
 
+        if not addr:
+            addr = i2c_device.addr
         if out_data != None and len(out_data) > 0:
-            write = i2c_msg.write(i2c_addr, out_data)
+            write = i2c_msg.write(addr, out_data)
         else:
             write = None
         if in_count > 0:
-            read = i2c_msg.read(i2c_addr, in_count)
+            read = i2c_msg.read(addr, in_count)
         else:
             read = None
 
@@ -152,21 +151,21 @@ class RpiMainboard(Mainboard, ABC):
         logging.getLogger().debug(f"exec: {params}")
         subprocess.call(params, shell=False)
 
-    # abstract to be implemented
-    @abstractmethod
-    def _set_gpio_as_input(self, num: int, pull_up_down: str): ...
+    # abstract to be implemented, but not as hard abstract because e.g. i2c can be used beyond
+    def _set_gpio_as_input(self, num: int, pull_up_down: str):
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
-    @abstractmethod
-    def _set_gpio_event_handler(self, num: int, edge, name = None, handler = None): ...
+    def _set_gpio_event_handler(self, num: int, edge, name = None, handler = None):
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
-    @abstractmethod
-    def _set_gpio_as_output(self, num: int, init: bool): ...
+    def _set_gpio_as_output(self, num: int, init: bool):
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
-    @abstractmethod
-    def _read_gpio(self, num: int) -> bool: ...
+    def _read_gpio(self, num: int) -> bool:
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
-    @abstractmethod
-    def _write_gpio(self, num, val: bool): ...
+    def _write_gpio(self, num, val: bool):
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     def on_pin_change(self, source):
         pass
@@ -208,11 +207,11 @@ class RpiMainboard(Mainboard, ABC):
 
     def configure(self, configuration):
         # items should be ok as were tested in rig
-        self.check_configuration()
+        #print(f"rpi.configure({configuration}")
+        self.check_configuration(configuration)
         for name, cfg in configuration.items():
             cap = self.get_capabilities()[cfg["capability_id"]]
 
-            item = self._io_map[name]
             self._set_gpio_function(cap["num"], cap["type"])
             match cap["type"]:
                 case "gpio":
@@ -234,7 +233,7 @@ class RpiMainboard(Mainboard, ABC):
                     else:
                         self._set_gpio_as_output(cap["num"], cfg.get("init", 0))
                 case "pwm":
-                    self.set_pwm(item["num"], 0)
+                    self.set_pwm(cap["num"], 0)
                     self._pwm_state[name] = 0
                 case "i2c":
                     pass

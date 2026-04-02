@@ -138,6 +138,7 @@ class I2CDevice:
 
     def assign_controller(self, controller: IOControllerMixin, capability_id: str):
         if (controller != self._controller) | (self._capability_id != capability_id):
+            #print(f"assign controller: {controller}, {capability_id}")
             self._initialized = None
             self._controller = controller
             self._capability_id = capability_id
@@ -168,8 +169,6 @@ class I2CDevice:
             return
         if not self._controller:
             raise TestbenchError(f"Controller is not assigned {self}")
-        if not self._module:
-            raise TestbenchError(f"Module is not assigned {self}")
         self._initialized = False
         try:
             self.acquire_bus()
@@ -201,13 +200,13 @@ class I2CDevice:
         pass
 
     @final
-    def write_read(self, out_data, in_count: int):
+    def write_read(self, out_data, in_count: int, addr = None):
         self.acquire_bus()
         try:
             if self._initialized is None:
                 # lazy setup
                 self.setup()
-            result = self._controller.i2c_write_read(self, out_data, in_count)
+            result = self._controller.i2c_write_read(self, out_data, in_count, addr)
         finally:
             self.release_bus()
         return result
@@ -252,10 +251,12 @@ class I2CBusRLock:
         self._real_lock.release()
 
     def _first_lock_impl(self):
-        self._i2c_device.module.toggle_i2c_bus(self._i2c_device, True)
+        if self._i2c_device.module:
+            self._i2c_device.module.toggle_i2c_bus(self._i2c_device, True)
 
     def _final_unlock_impl(self):
-        self._i2c_device.module.toggle_i2c_bus(self._i2c_device, False)
+        if self._i2c_device.module:
+            self._i2c_device.module.toggle_i2c_bus(self._i2c_device, False)
 
     # with lock:  is not implemented as we need pass i2c_device parameter
     #def __enter__(self):
@@ -270,57 +271,54 @@ class IOControllerMixin:
     NOT_IMPLEMENTED = "Function is not implemented"
 
     def __init__(self, *args, **kwargs):
-        self._i2c_buses = {}
+        self._i2c_bus_locks = {}
         for key, capability in self.capabilities.items():
             if capability["type"] == "i2c":
-                self._i2c_buses[key] = I2CBusRLock()   # recursive/reentrant lock
+                self._i2c_bus_locks[key] = I2CBusRLock()   # recursive/reentrant lock
 
         super().__init__(*args, **kwargs)
 
     def get_i2c_bus_lock(self, id: str) -> I2CBusRLock:
-        if id in self._i2c_buses:
-            return self._i2c_buses[id]
-        raise TestbenchError(f"I2C bus '{id}' not found")
+        if id in self._i2c_bus_locks:
+            return self._i2c_bus_locks[id]
+        raise TestbenchError(f"I2C bus '{id}' not found. {self}")
 
-    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count):
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count, addr = None):
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     # --- Digital single
     def read_pin(self, id: str) -> bool:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     def write_pin(self, id: int, value: bool) -> None:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     def set_pin_event_handler(self, num, edge, name = None, handler = None):
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     # --- Digital Group (Bulk) ---
     def read_port(self, id: str) -> int:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     def write_port(self, id: str, value: int) -> None:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     # --- Analog ---
     def read_analog(self, id: str) -> float:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     def write_analog(self, id: str, value: float) -> None:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     def write_pwm(self, id: str, duty_cycle: float, freq: float = None) -> None:
-        raise NotImlementedErrror(self.self.NOT_IMPLEMENTED)
+        raise NotImlementedErrror(self.NOT_IMPLEMENTED)
 
     ## Capabilities provided by entity
-    ## {
     ##     "io1":
     ##          ....
     ##          "access": r/w/rw
-    ##          "options": {
+    ##          "options":
     ##              "mode": ["in", "out"]
-    ##          },
-    ## }
     def get_capabilities(self) -> dict:
         return {}
 
@@ -429,9 +427,16 @@ class Rig:
             module.assign_rig(None)
             self.configure()
 
-    def configure(self):
+    def configure(self, extra_configuration:dict = {}):
         configuration = {}
         if self._mainboard:
+            for key, cfg in extra_configuration.items():
+                if cfg.get("unused", False):
+                    continue
+                cfg = cfg.copy()
+                cfg.setdefault("capability_id", key)
+                configuration[(None, key)] = cfg
+
             # merge configuration, prefix id by module name
             cfg_modules = {}
             cfg_modules[self._mainboard] = {}
@@ -450,7 +455,7 @@ class Rig:
                         cfg_modules[module][key] = cfg
 
             unknown = []
-            #print(f"rig config: {configuration}, {self._mainboard.capabilities},{self._modules}")
+            #print(f"rig config: {configuration}, {self._mainboard.capabilities}, {self._modules}")
             for key, cfg in configuration.items():
                 if cfg.get("__controller__"):
                     continue
@@ -472,7 +477,7 @@ class Rig:
                 raise TestbenchError(f"Cannot find target controller for {unknown}")
 
             self._configuration = configuration
-            #print(f"{cfg_modules}")
+            #print(f"cfg_modules: {cfg_modules}")
             for module, cfg_module in cfg_modules.items():
                 module.configure(cfg_module)
         self._configuration = configuration

@@ -43,9 +43,9 @@ class LoggingIOController(IOControllerMixin):
     def write_pwm(self, id: str, duty_cycle: float, freq: float = None) -> None:
         self.calls.append(("write_pwm", id, duty_cycle))
 
-    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count):
+    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count, addr = None):
         print(f"i2c({self}, {i2c_device}, {out_data}, {in_count}")
-        self.calls.append(("i2c_write_read", i2c_device.bus_id, i2c_device.addr, out_data, in_count))
+        self.calls.append(("i2c_write_read", i2c_device.bus_id, i2c_device.addr, out_data, in_count, addr))
         result = []
         for i in range(0, in_count):
             result.append(i)
@@ -207,10 +207,10 @@ def device():
 
     class MyI2CDevice(I2CDevice):
         def _setup_impl(self):
-            self.write_read(["S", "E", "T", "U", "P"], 0)
+            self.write_read(["S", "E", "T", "U", "P"], 0, None)
 
         def _reset_impl(self):
-            self.write_read(["R", "E", "S", "E", "T"], 0)
+            self.write_read(["R", "E", "S", "E", "T"], 0, None)
 
 
     # factory
@@ -498,20 +498,20 @@ def test_i2c_device(rig, mainboard, module, device):
     assert d2.controller == m1
     assert d2.module == m1
     # setup + payload
-    assert d1.write_read(["A"], 0) == []
-    assert mainboard.calls.pop(-2) == ("i2c_write_read", "i2c0", d1.addr, ["S", "E", "T", "U", "P"], 0)
-    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["A"], 0)
+    assert d1.write_read(["A"], 0, d1.addr+1) == []
+    assert mainboard.calls.pop(-2) == ("i2c_write_read", "i2c0", d1.addr, ["S", "E", "T", "U", "P"], 0, None)
+    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["A"], 0, d1.addr+1)
     assert len(m1.calls) == 2
     assert m1.calls.pop(-2) == ("toggle_i2c_bus", d1.bus_id, d1.addr, True)
     assert m1.calls.pop() == ("toggle_i2c_bus", d1.bus_id, d1.addr, False)
-    assert d1.write_read(["B", "C"], 2) == [0, 1]
+    assert d1.write_read(["B", "C"], 2, None) == [0, 1]
     assert len(mainboard.calls) == 1
-    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["B", "C"], 2)
+    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["B", "C"], 2, None)
 
     d1.write_reg16(0x78, 0x1234)
-    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, [0x78, 0x12, 0x34], 0)
+    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, [0x78, 0x12, 0x34], 0, None)
     d1.read_reg16(0x87) == 0x0102
-    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, [0x87], 2)
+    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, [0x87], 2, None)
 
     mainboard.calls.clear()
     # already initialized so no setup
@@ -519,9 +519,9 @@ def test_i2c_device(rig, mainboard, module, device):
     assert len(mainboard.calls) == 0
     d1.setup(True)
     assert len(mainboard.calls) == 1
-    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["S", "E", "T", "U", "P"], 0)
+    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["S", "E", "T", "U", "P"], 0, None)
 
     d1.reset()
-    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["R", "E", "S", "E", "T"], 0)
+    assert mainboard.calls.pop() == ("i2c_write_read", "i2c0", d1.addr, ["R", "E", "S", "E", "T"], 0, None)
     assert d1._initialized is None
 

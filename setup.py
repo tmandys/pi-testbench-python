@@ -43,7 +43,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            #"tset = pi_testbench.test:main",
+            "tbench_memory_tool = pi_testbench.memory_tool:main",
         ],
     },
     install_requires = [

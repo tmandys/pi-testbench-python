@@ -13,7 +13,7 @@ class LoggingIOController(IOControllerMixin):
         super().__init__(*args, **kwargs)
         self.calls = []
 
-    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count):
+    def i2c_write_read(self, i2c_device: I2CDevice, out_data, in_count, addr = None):
         #print(f"i2c({self}, {i2c_device}, {out_data}, {in_count}")
         self.calls.append(("i2c_write_read", i2c_device.bus_id, i2c_device.addr, out_data, in_count))
         result = []

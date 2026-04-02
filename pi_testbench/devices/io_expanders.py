@@ -32,6 +32,11 @@ class PCF857x(I2CDevice):
     def __init__(self, bus_id: str, addr: int, num_bytes: int):
         super().__init__(bus_id, addr)
         self._num_bytes = num_bytes
+        self._last_state = 0
+
+    @property
+    def input_count(self):
+        return self._num_bytes << 8
 
     def _setup_impl(self):
         self.set_outputs((1 << (self._num_bytes * 8)) - 1)
